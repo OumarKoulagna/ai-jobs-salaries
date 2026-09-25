@@ -34,7 +34,7 @@ Analyser le marché des emplois en données et en intelligence artificielle à p
 
 Le projet met en œuvre une chaîne complète : import du CSV dans MongoDB, nettoyage et enrichissement,
 isolation des valeurs aberrantes, agrégations par pipeline, implémentation du paradigme **MapReduce**
-avec comparaison chiffrée des deux mécanismes, contrôle qualité et indexation.
+avec benchmark chiffré des deux mécanismes, contrôle qualité et indexation.
 
 ---
 
@@ -48,6 +48,7 @@ avec comparaison chiffrée des deux mécanismes, contrôle qualité et indexatio
 | Intitulés de poste distincts | **422**, regroupés en **11** familles |
 | Pays d'implantation des entreprises | **97** |
 | Concentration sur le marché américain | **83,6 %** (60 147 offres) |
+| Pipeline d'agrégation contre MapReduce | **23,9× plus rapide**, résultat identique |
 
 **Salaire annuel moyen par niveau d'expérience** (extrêmes exclus) :
 
@@ -310,12 +311,39 @@ Computer Vision 161 895 $. Les deux méthodes sont donc interchangeables sur le 
 partiels, contrairement à une somme ou un comptage. Seul le pipeline d'agrégation la fournit, via
 `$median` (MongoDB 7.0+). C'est la limite structurelle du paradigme Map/Reduce.
 
-**Pourquoi il a été retiré :** `mapReduce` est déprécié depuis MongoDB 5.0 et **supprimé des
-serveurs plus récents**. Trois raisons : il passe par un interpréteur JavaScript là où le pipeline
-s'exécute en code natif ; il matérialise ses résultats intermédiaires dans une collection
-temporaire ; et il est moins expressif (ni `$lookup`, ni `$setWindowFields`, ni `$facet`).
+### 7.7 Benchmark : MapReduce contre pipeline d'agrégation
 
-### 7.7 Requêtes et plans d'exécution
+Le même indicateur a été chronométré sur les deux mécanismes, dans des conditions identiques
+— même filtre d'outliers, même exclusion de la famille fourre-tout, mêmes 70 159 documents.
+Les temps sont ceux relevés dans l'onglet *Message* de Navicat.
+
+| Méthode | Query Time | Familles produites | Écart de résultat |
+|---|---|---|---|
+| `mapReduce` (JavaScript) | 1,172 s | 10 | — |
+| Pipeline d'agrégation (natif) | **0,049 s** | 10 | **0 $** |
+
+Le pipeline est **23,9 fois plus rapide** pour un résultat rigoureusement identique. Ce n'est pas
+un artefact de mesure : les deux requêtes ont été relancées et comparent exactement les mêmes
+moyennes, à l'unité près (AI Architect 192 781 $, NLP 134 649 $, etc.).
+
+**Pourquoi un tel écart ?** Trois raisons cumulées :
+
+- **Interpréteur contre code natif.** Les fonctions `map`, `reduce` et `finalize` sont du JavaScript
+  évalué document par document, là où les opérateurs du pipeline sont compilés dans le moteur.
+- **Matérialisation intermédiaire.** Le MapReduce écrit les paires `(clé, valeur)` sur disque entre
+  les phases, puis les relit au moment du reduce. Le pipeline conserve tout en mémoire.
+- **Volume de travail par document.** Le `$match` du pipeline s'appuie sur les index disponibles,
+  alors que l'émission des paires reste coûteuse quel que soit le filtre appliqué en amont.
+
+C'est la démonstration concrète de ce qu'annonce la documentation MongoDB : depuis la version 5.0,
+`mapReduce` est déprécié, et le pipeline d'agrégation couvre tous ses cas d'usage pour une fraction
+du coût.
+
+**Pourquoi il a été retiré :** `mapReduce` est déprécié depuis MongoDB 5.0 et **supprimé des
+serveurs plus récents**. Outre la performance, il est moins expressif — ni `$lookup`, ni
+`$setWindowFields`, ni `$facet` — et il ne peut pas calculer une médiane.
+
+### 7.8 Requêtes et plans d'exécution
 
 Les requêtes sont documentées dans [`docs/requetes_navicat.md`](docs/requetes_navicat.md).
 Elles couvrent les filtres `find`, les agrégations par niveau et par métier, le tableau croisé
@@ -336,7 +364,7 @@ Trois index composites ont été créés sur les filtres les plus fréquents :
 Le plan d'exécution (`explain()`) permet de vérifier le passage de `COLLSCAN` — parcours des
 71 913 documents — à `IXSCAN`, lecture ciblée par l'index.
 
-### 7.8 Contrôle qualité
+### 7.9 Contrôle qualité
 
 Un contrôle de doublons a été mené sur la combinaison identifiante la plus probable
 (intitulé + année + salaire + pays + expérience). Il révèle des groupes allant **jusqu'à cinq
