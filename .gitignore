@@ -1,0 +1,21 @@
+# Données brutes — non versionnées
+data/raw/
+
+# Sorties de travail
+*.log
+scratch/
+
+# Système
+.DS_Store
+Thumbs.db
+
+# Éditeurs
+.vscode/
+.idea/
+
+# Python (si analyse complémentaire)
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
